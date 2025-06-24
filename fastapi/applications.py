@@ -29,6 +29,7 @@ from fastapi.openapi.docs import (
 )
 from fastapi.openapi.utils import get_openapi
 from fastapi.params import Depends
+from fastapi.responses import EventSourceResponse
 from fastapi.types import DecoratedCallable, IncEx
 from fastapi.utils import generate_unique_id
 from starlette.applications import Starlette
@@ -1455,6 +1456,81 @@ class FastAPI(Starlette):
             default_response_class=default_response_class,
             callbacks=callbacks,
             generate_unique_id_function=generate_unique_id_function,
+        )
+
+    def eventsource(
+        self,
+        path: Annotated[
+            str,
+            Doc(
+                """
+                The URL path to be used for this *path operation*.
+
+                For example, in `http://example.com/items`, the path is `/items`.
+                """
+            ),
+        ],
+        *,
+        dependencies: Annotated[
+            Optional[Sequence[Depends]],
+            Doc(
+                """
+                A list of dependencies (using `Depends()`) to be applied to the
+                *path operation*.
+
+                Read more about it in the
+                [FastAPI docs for Dependencies in path operation decorators](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-in-path-operation-decorators/).
+                """
+            ),
+        ] = None,
+        response_class: Annotated[
+            Type[Response],
+            Doc(
+                """
+                Response class to be used for this *path operation*.
+
+                This will not be used if you return a response directly.
+
+                Read more about it in the
+                [FastAPI docs for Custom Response - HTML, Stream, File, others](https://fastapi.tiangolo.com/advanced/custom-response/#available-responses).
+                """
+            ),
+        ] = Default(EventSourceResponse),
+        name: Annotated[
+            Optional[str],
+            Doc(
+                """
+                Name for this *path operation*. Only used internally.
+                """
+            ),
+        ] = None,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        """
+        Decorate a EventSource generator function.
+
+        Read more about it in the
+        [FastAPI docs for Server Sent Events](https://fastapi.tiangolo.com/advanced/server-sent-events/).
+
+        **Example**
+
+        ```python
+        from fastapi import FastAPI
+        from asyncio import sleep
+
+        app = FastAPI()
+
+        @app.eventsource("/events")
+        async def events():
+            for count in range(10):
+                yield count
+                await sleep(1)
+        ```
+        """
+        return self.router.eventsource(
+            path,
+            response_class=response_class,
+            dependencies=dependencies,
+            name=name,
         )
 
     def get(

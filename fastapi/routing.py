@@ -48,6 +48,7 @@ from fastapi.exceptions import (
     ResponseValidationError,
     WebSocketRequestValidationError,
 )
+from fastapi.responses import EventSourceResponse
 from fastapi.types import DecoratedCallable, IncEx
 from fastapi.utils import (
     create_cloned_field,
@@ -324,17 +325,22 @@ def get_request_handler(
                             response_args["status_code"] = (
                                 solved_result.response.status_code
                             )
-                        content = await serialize_response(
-                            field=response_field,
-                            response_content=raw_response,
-                            include=response_model_include,
-                            exclude=response_model_exclude,
-                            by_alias=response_model_by_alias,
-                            exclude_unset=response_model_exclude_unset,
-                            exclude_defaults=response_model_exclude_defaults,
-                            exclude_none=response_model_exclude_none,
-                            is_coroutine=is_coroutine,
-                        )
+                        if inspect.isasyncgen(raw_response) or inspect.isgenerator(
+                            raw_response
+                        ):
+                            content = raw_response
+                        else:
+                            content = await serialize_response(
+                                field=response_field,
+                                response_content=raw_response,
+                                include=response_model_include,
+                                exclude=response_model_exclude,
+                                by_alias=response_model_by_alias,
+                                exclude_unset=response_model_exclude_unset,
+                                exclude_defaults=response_model_exclude_defaults,
+                                exclude_none=response_model_exclude_none,
+                                is_coroutine=is_coroutine,
+                            )
                         response = actual_response_class(content, **response_args)
                         if not is_body_allowed_for_status_code(response.status_code):
                             response.body = b""
@@ -1361,6 +1367,82 @@ class APIRouter(routing.Router):
         self.lifespan_context = _merge_lifespan_context(
             self.lifespan_context,
             router.lifespan_context,
+        )
+
+    def eventsource(
+        self,
+        path: Annotated[
+            str,
+            Doc(
+                """
+                The URL path to be used for this *path operation*.
+
+                For example, in `http://example.com/items`, the path is `/items`.
+                """
+            ),
+        ],
+        *,
+        dependencies: Annotated[
+            Optional[Sequence[params.Depends]],
+            Doc(
+                """
+                A list of dependencies (using `Depends()`) to be applied to the
+                *path operation*.
+
+                Read more about it in the
+                [FastAPI docs for Dependencies in path operation decorators](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-in-path-operation-decorators/).
+                """
+            ),
+        ] = None,
+        response_class: Annotated[
+            Type[Response],
+            Doc(
+                """
+                Response class to be used for this *path operation*.
+
+                This will not be used if you return a response directly.
+
+                Read more about it in the
+                [FastAPI docs for Custom Response - HTML, Stream, File, others](https://fastapi.tiangolo.com/advanced/custom-response/#redirectresponse).
+                """
+            ),
+        ] = Default(EventSourceResponse),
+        name: Annotated[
+            Optional[str],
+            Doc(
+                """
+                Name for this *path operation*. Only used internally.
+                """
+            ),
+        ] = None,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        """
+        Add a *path operation* using an HTTP GET operation following the Server Sent Events (SSE) protocol.
+
+        ## Example
+
+        ```python
+        from fastapi import APIRouter, FastAPI
+        from asyncio import sleep
+
+        app = FastAPI()
+        router = APIRouter()
+
+        @router.eventsource("/events/")
+        def events():
+            for count in range(10):
+                yield count
+                await sleep(1)
+
+        app.include_router(router)
+        ```
+        """
+        return self.api_route(
+            path=path,
+            dependencies=dependencies,
+            methods=["GET"],
+            response_class=response_class,
+            name=name,
         )
 
     def get(
